@@ -9,6 +9,11 @@ server:
 spring:
   application:
     name: hospital-server
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 12MB
   datasource:
     # In Docker compose, DB_HOST points at the `mysql` service.
     # In local dev (running the jar directly), default to 127.0.0.1.
@@ -65,6 +70,13 @@ management:
 # Two-tier token: short-lived access (15 min) + long-lived refresh (7 days), refresh is
 # single-use (server tracks the rotation by `jti`).
 app:
+  upload:
+    # Local directory for triage photo uploads. Served at /uploads/**.
+    dir: ${UPLOAD_DIR:uploads}
+    # Public URL prefix that the AI vision model can fetch. Set to the
+    # host:port the phone/emulator can reach this server on.
+    public-base-url: ${UPLOAD_PUBLIC_BASE_URL:http://localhost:8090}
+    max-image-bytes: ${UPLOAD_MAX_BYTES:5242880}
   jwt:
     secret: ${JWT_SECRET:neusoft-hospital-dev-secret-key-please-rotate-in-production}
     access-ttl-seconds: 900         # 15 minutes
@@ -97,6 +109,8 @@ app:
       temperature: ${BAILIAN_TEMPERATURE:0.4}
       max-tokens: ${BAILIAN_MAX_TOKENS:800}
       timeout-ms: ${BAILIAN_TIMEOUT_MS:15000}
+      # Vision model for image triage (qwen-vl-plus / qwen-vl-max).
+      vision-model: ${BAILIAN_VISION_MODEL:qwen-vl-plus}
   reminder:
     # Send SMS reminder N minutes before appointment start.
     enabled: ${REMINDER_ENABLED:true}

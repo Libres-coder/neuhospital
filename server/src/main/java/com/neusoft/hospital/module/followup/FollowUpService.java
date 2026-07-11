@@ -20,6 +20,7 @@ public class FollowUpService {
     private final ChronicRecordRepository chronicRecordRepository;
     private final ChronicAlertRepository chronicAlertRepository;
     private final RehabLogRepository rehabLogRepository;
+    private final FollowUpAiService aiService;
     private final ObjectMapper mapper = new ObjectMapper();
 
     // ---------- follow-up plans ----------
@@ -36,21 +37,23 @@ public class FollowUpService {
         plan.setCreateTime(now);
         planRepository.save(plan);
 
-        // Generate tasks at 7/14/30/60/90 day checkpoints
+        // Generate tasks at 7/14/30/60/90 day checkpoints. Question list is
+        // generated per (disease, dayIndex) so a heart-surgery patient doesn't
+        // get the same questions as an orthopedic one. Falls back to a
+        // deterministic template if the AI call fails.
         List<Integer> checkpoints = Arrays.asList(7, 14, 30, 60, 90).stream()
                 .filter(d -> d <= req.getTotalDays()).collect(Collectors.toList());
-        List<String> baseQuestions = Arrays.asList("伤口愈合情况", "疼痛评分（0-10）", "用药情况", "精神状态", "饮食情况");
-        String qjson = joinList(baseQuestions);
 
         List<FollowUpTask> tasks = new ArrayList<>();
         for (int day : checkpoints) {
+            List<String> qs = aiService.personalizedQuestions(req.getDisease(), day);
             FollowUpTask t = new FollowUpTask();
             t.setId("task_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16));
             t.setPlanId(plan.getId());
             t.setPatientId(userId);
             t.setDayIndex(day);
             t.setTargetDate(DateExt.addDays(plan.getSurgeryDate(), day));
-            t.setQuestionsJson(qjson);
+            t.setQuestionsJson(joinList(qs));
             t.setCompleted(false);
             tasks.add(t);
         }
@@ -84,15 +87,22 @@ public class FollowUpService {
         FollowUpTask task = taskRepository.findById(req.getTaskId())
                 .orElseThrow(() -> BizException.notFound("任务不存在"));
         if (!task.getPatientId().equals(userId)) throw BizException.forbidden("无权操作该任务");
+        Map<String, String> answers = req.getAnswers();
         try {
-            task.setAnswersJson(mapper.writeValueAsString(req.getAnswers()));
+            task.setAnswersJson(mapper.writeValueAsString(answers));
         } catch (Exception e) {
             throw BizException.badRequest("answers format invalid");
         }
         task.setCompleted(true);
         task.setCompletedTime(System.currentTimeMillis());
-        // canned doctor reply (mirror the previous client behaviour)
-        task.setDoctorReply("已收到您的反馈。请继续按医嘱康复，注意休息并按时复查。如出现异常请立即就医。");
+
+        // AI doctor reply. Look up the disease via the parent plan so the
+        // model has enough context to give a relevant answer.
+        FollowUpPlan plan = planRepository.findById(task.getPlanId()).orElse(null);
+        String disease = plan == null ? "" : plan.getDisease();
+        List<String> qs = splitList(task.getQuestionsJson());
+        String reply = aiService.doctorReply(disease, qs, answers);
+        task.setDoctorReply(reply);
         taskRepository.save(task);
     }
 
@@ -124,18 +134,65 @@ public class FollowUpService {
         chronicRecordRepository.save(r);
 
         if (level >= 2) {
+            // AI-assisted alert message: feed the latest record + up to 5 prior
+            // records (newest-first) so the model can detect trends, not just
+            // absolutes. Falls back to the threshold message if Bailian is off.
+            Map<String, Object> latestMap = recordToMap(req);
+            List<ChronicRecord> prior = chronicRecordRepository
+                    .findByPatientIdAndTypeOrderByRecordDateDesc(userId, req.getType());
+            List<Map<String, Object>> recent = new ArrayList<>();
+            for (ChronicRecord p : prior) {
+                if (p.getId().equals(r.getId())) continue;
+                recent.add(Map.of(
+                        "date", p.getRecordDate(),
+                        "systolic", p.getSystolic(),
+                        "diastolic", p.getDiastolic(),
+                        "heartRate", p.getHeartRate(),
+                        "fastingGlucose", p.getFastingGlucose(),
+                        "postprandialGlucose", p.getPostprandialGlucose(),
+                        "hba1c", p.getHba1c(),
+                        "alertLevel", p.getAlertLevel()
+                ));
+                if (recent.size() >= 5) break;
+            }
+            FollowUpAiService.AiAlertResult ai;
+            try {
+                ai = aiService.classifyChronic(req.getType(), latestMap, recent);
+            } catch (Exception e) {
+                ai = null;
+            }
+            String msg;
+            if (ai != null && ai.message != null && !ai.message.isBlank()) {
+                msg = ai.message;
+            } else {
+                msg = buildAlertMessage(req, level);
+            }
+
             ChronicAlert a = new ChronicAlert();
             a.setId("alert_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16));
             a.setPatientId(userId);
             a.setRecordId(r.getId());
             a.setType(req.getType());
             a.setLevel(level);
-            a.setMessage(buildAlertMessage(req, level));
+            a.setMessage(msg);
             a.setCreateTime(System.currentTimeMillis());
             a.setAcknowledged(false);
             chronicAlertRepository.save(a);
         }
         return toChronicDto(r);
+    }
+
+    private static Map<String, Object> recordToMap(FollowUpDtos.ChronicRecordRequest r) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("date", r.getDate());
+        m.put("systolic", r.getSystolic());
+        m.put("diastolic", r.getDiastolic());
+        m.put("heartRate", r.getHeartRate());
+        m.put("fastingGlucose", r.getFastingGlucose());
+        m.put("postprandialGlucose", r.getPostprandialGlucose());
+        m.put("hba1c", r.getHba1c());
+        m.put("note", r.getNote());
+        return m;
     }
 
     public List<FollowUpDtos.ChronicAlertDto> listAlerts(String userId) {

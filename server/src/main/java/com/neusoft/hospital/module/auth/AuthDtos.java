@@ -79,6 +79,19 @@ public class AuthDtos {
     }
 
     @Data
+    public static class BindMiRequest {
+        private String medicalInsuranceNo;
+    }
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class BindMiResponse {
+        private String medicalInsuranceNo;
+        private long boundAt;
+    }
+
+    @Data
     @AllArgsConstructor
     @NoArgsConstructor
     public static class MeResponse {
@@ -89,5 +102,7 @@ public class AuthDtos {
         private boolean verified;
         @com.fasterxml.jackson.annotation.JsonProperty("hasEhsCard")
         private boolean hasEhsCard;
+        @com.fasterxml.jackson.annotation.JsonProperty("hasMedicalInsurance")
+        private boolean hasMedicalInsurance;
     }
 }

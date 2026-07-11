@@ -3,18 +3,22 @@ package com.neusoft.hospital.module.aichat;
 import com.alibaba.dashscope.aigc.generation.Generation;
 import com.alibaba.dashscope.aigc.generation.GenerationParam;
 import com.alibaba.dashscope.aigc.generation.GenerationResult;
+import com.alibaba.dashscope.aigc.multimodalconversation.MultiModalConversation;
+import com.alibaba.dashscope.aigc.multimodalconversation.MultiModalConversationParam;
+import com.alibaba.dashscope.aigc.multimodalconversation.MultiModalConversationResult;
 import com.alibaba.dashscope.common.Message;
+import com.alibaba.dashscope.common.MultiModalMessage;
 import com.alibaba.dashscope.common.Role;
 import com.alibaba.dashscope.exception.ApiException;
 import com.alibaba.dashscope.exception.InputRequiredException;
 import com.alibaba.dashscope.exception.NoApiKeyException;
+import com.alibaba.dashscope.exception.UploadFileException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 /**
  * Thin wrapper around the Alibaba Bailian (DashScope) Java SDK.
@@ -57,6 +61,10 @@ public class BailianClient {
     /** Max output tokens. 800 ≈ ~600 Chinese chars, fits two-screen reply. */
     @Value("${app.ai.bailian.max-tokens:800}")
     private int maxTokens;
+
+    /** Vision model for image+text understanding (qwen-vl-plus / qwen-vl-max). */
+    @Value("${app.ai.bailian.vision-model:qwen-vl-plus}")
+    private String visionModel;
 
     /**
      * Whether the client is configured and ready to make calls.
@@ -139,6 +147,89 @@ public class BailianClient {
             log.warn("Bailian runtime failure: {}", e.toString());
             throw new BailianUnavailableException("Bailian transport failure", e);
         }
+    }
+
+    /**
+     * Ask the vision model to describe one image with an optional user hint.
+     *
+     * @param imageUrl Publicly reachable URL (the SDK downloads the bytes
+     *                 server-side). For dev we use {@code http://host:8090/uploads/..}
+     *                 via {@link com.neusoft.hospital.config.UploadWebConfig}.
+     * @param prompt   Instruction in Chinese, e.g. "这张皮肤照片显示了什么皮肤病变？"
+     */
+    public String describeImage(String imageUrl, String prompt) {
+        if (!isEnabled()) {
+            throw new BailianUnavailableException("Bailian client not configured (api-key missing)");
+        }
+        if (imageUrl == null || imageUrl.isBlank()) {
+            throw new IllegalArgumentException("imageUrl is blank");
+        }
+        String ask = (prompt == null || prompt.isBlank())
+                ? "请用中文描述这张图片里看到的医学相关症状（不超过150字）。"
+                : prompt;
+        Map<String, Object> imagePart = Collections.singletonMap("image", imageUrl);
+        Map<String, Object> textPart = Collections.singletonMap("text", ask);
+        MultiModalMessage msg = MultiModalMessage.builder()
+                .role(Role.USER.getValue())
+                .content(Arrays.asList(imagePart, textPart))
+                .build();
+        MultiModalConversationParam param = MultiModalConversationParam.builder()
+                .apiKey(apiKey)
+                .model(visionModel)
+                .messages(Collections.singletonList(msg))
+                .build();
+        try {
+            long start = System.currentTimeMillis();
+            MultiModalConversationResult result = new MultiModalConversation().call(param);
+            long cost = System.currentTimeMillis() - start;
+            log.info("Bailian vision OK model={} costMs={}", visionModel, cost);
+            if (result == null || result.getOutput() == null
+                    || result.getOutput().getChoices() == null
+                    || result.getOutput().getChoices().isEmpty()) {
+                throw new BailianUnavailableException("Bailian vision returned empty output");
+            }
+            Object content = result.getOutput().getChoices().get(0).getMessage().getContent();
+            // content is List<Map<String,Object>>; each entry has a "text" or "image" key
+            String text = extractText(content);
+            if (text == null || text.isBlank()) {
+                throw new BailianUnavailableException("Bailian vision returned blank text");
+            }
+            return text.trim();
+        } catch (NoApiKeyException e) {
+            log.error("Bailian vision NoApiKeyException: {}", e.getMessage());
+            throw new BailianUnavailableException("Bailian API key invalid or missing", e);
+        } catch (UploadFileException e) {
+            log.warn("Bailian vision UploadFileException: {}", e.getMessage());
+            throw new BailianUnavailableException("Bailian vision upload failed", e);
+        } catch (ApiException e) {
+            String code = e.getStatus() == null ? "?" : e.getStatus().getCode();
+            int httpCode = e.getStatus() == null ? -1 : e.getStatus().getStatusCode();
+            log.warn("Bailian vision ApiException code={} httpStatus={} message={}", code, httpCode, e.getMessage());
+            throw new BailianUnavailableException("Bailian vision error (code=" + code + ")", e);
+        } catch (RuntimeException e) {
+            log.warn("Bailian vision runtime failure: {}", e.toString());
+            throw new BailianUnavailableException("Bailian vision transport failure", e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String extractText(Object content) {
+        if (content == null) return null;
+        if (content instanceof String) return (String) content;
+        if (content instanceof List) {
+            StringBuilder sb = new StringBuilder();
+            for (Object item : (List<Object>) content) {
+                if (item instanceof Map) {
+                    Object t = ((Map<String, Object>) item).get("text");
+                    if (t != null) {
+                        if (sb.length() > 0) sb.append('\n');
+                        sb.append(t);
+                    }
+                }
+            }
+            return sb.toString();
+        }
+        return content.toString();
     }
 
     /**

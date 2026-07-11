@@ -34,6 +34,12 @@ public class SecurityConfig {
                                 "/error"
                         ).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/departments/**", "/api/doctors/**").permitAll()
+                        // triage is intentionally public so the demo path works
+                        // without login (the SDK still learns what users describe).
+                        .requestMatchers(HttpMethod.POST, "/api/preconsult/triage").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/preconsult/triage/image").permitAll()
+                        // uploaded symptom photos must be reachable by Qwen-VL
+                        .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
                         // actuator: only liveness/readiness are public, the rest stays 401
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers("/actuator/**").denyAll()

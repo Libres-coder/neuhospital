@@ -56,6 +56,14 @@ public class AuthController {
         return Result.ok(authService.bindEhs(userId, req.getEhsCardNo()));
     }
 
+    @PostMapping("/bind-mi")
+    @Operation(summary = "绑定国家医保电子凭证（20 位编码或身份证号）")
+    public Result<AuthDtos.BindMiResponse> bindMi(
+            @AuthenticationPrincipal String userId,
+            @RequestBody AuthDtos.BindMiRequest req) {
+        return Result.ok(authService.bindMi(userId, req.getMedicalInsuranceNo()));
+    }
+
     @PostMapping("/logout")
     @Operation(summary = "退出登录（撤销 refresh token；客户端丢弃 access token）")
     public Result<Void> logout(

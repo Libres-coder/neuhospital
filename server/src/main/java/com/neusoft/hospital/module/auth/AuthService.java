@@ -3,6 +3,7 @@ package com.neusoft.hospital.module.auth;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.neusoft.hospital.common.BizException;
+import com.neusoft.hospital.common.IdCardValidator;
 import com.neusoft.hospital.common.RateLimiter;
 import com.neusoft.hospital.config.JwtUtil;
 import com.neusoft.hospital.config.RefreshTokenStore;
@@ -126,7 +127,7 @@ public class AuthService {
                 .orElseThrow(() -> BizException.notFound("用户不存在"));
         return new AuthDtos.MeResponse(
                 user.getId(), user.getPhone(), user.getName(),
-                user.isVerified(), user.isEhsBound());
+                user.isVerified(), user.isEhsBound(), user.isMiBound());
     }
 
     @Transactional
@@ -134,8 +135,13 @@ public class AuthService {
         if (name == null || name.isBlank()) {
             throw BizException.badRequest("姓名不能为空");
         }
-        if (idCard == null || idCard.length() != 18) {
-            throw BizException.badRequest("身份证号必须为 18 位");
+        if (idCard == null) {
+            throw BizException.badRequest("身份证号不能为空");
+        }
+        String trimmed = idCard.trim().toUpperCase();
+        if (!IdCardValidator.isValid(trimmed)) {
+            // Don't expose internal validator reasons — just say "格式不正确".
+            throw BizException.badRequest("身份证号格式不正确");
         }
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> BizException.notFound("用户不存在"));
@@ -158,6 +164,31 @@ public class AuthService {
         user.setUpdateTime(System.currentTimeMillis());
         userRepository.save(user);
         return new AuthDtos.BindEhsResponse(cardNo);
+    }
+
+    /**
+     * Bind the user's national medical-insurance e-voucher. The number
+     * format accepted here is the 20-digit 国家医保编码 or the user's
+     * own ID-card number (the 国家医保 app accepts both).
+     */
+    @Transactional
+    public AuthDtos.BindMiResponse bindMi(String userId, String medicalInsuranceNo) {
+        if (medicalInsuranceNo == null) {
+            throw BizException.badRequest("医保凭证号不能为空");
+        }
+        String mi = medicalInsuranceNo.trim();
+        if (!(mi.matches("\\d{20}") || mi.matches("\\d{17}[\\dXx]"))) {
+            throw BizException.badRequest("医保凭证号格式不正确（20 位国家医保编码或身份证号）");
+        }
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> BizException.notFound("用户不存在"));
+        long now = System.currentTimeMillis();
+        user.setMedicalInsuranceNo(mi);
+        user.setMiBound(true);
+        user.setMiBoundTime(now);
+        user.setUpdateTime(now);
+        userRepository.save(user);
+        return new AuthDtos.BindMiResponse(mi, now);
     }
 
     public void logout(String userId, String refreshToken) {

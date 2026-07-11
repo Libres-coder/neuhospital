@@ -31,6 +31,16 @@ public class User {
     @Column(name = "ehs_bound", nullable = false)
     private boolean ehsBound;
 
+    /** 医保电子凭证号（20 位国家医保编码，或身份证号）。 */
+    @Column(name = "medical_insurance_no", length = 64)
+    private String medicalInsuranceNo;
+
+    @Column(name = "mi_bound", nullable = false)
+    private boolean miBound;
+
+    @Column(name = "mi_bound_time")
+    private Long miBoundTime;
+
     @Column(name = "create_time", nullable = false)
     private long createTime;
 
