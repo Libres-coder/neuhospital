@@ -30,9 +30,8 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
                            @Param("slot") String slot);
 
     /**
-     * Same predicate as above, but for one shot across many slots. Returns
-     * rows of (time_slot, cnt). Used by the doctor schedule endpoint to
-     * compute remaining capacity in a single round-trip.
+     * One-shot reducer used by the doctor schedule endpoint to compute
+     * remaining capacity in a single round-trip.
      */
     @Query("""
         select a.timeSlot as slot, count(a) as cnt
@@ -50,4 +49,26 @@ public interface AppointmentRepository extends JpaRepository<Appointment, String
         String getSlot();
         long getCnt();
     }
+
+    /**
+     * Reminder candidates: rows where the patient opted in, status is active,
+     * and the SMS hasn't gone out yet, on the requested date with start time
+     * inside the [minStart, maxStart] window.
+     *
+     * <p>The window is computed by the caller in the same timezone as the
+     * appointment_date column (interpreted as a plain HH:mm string).</p>
+     */
+    @Query("""
+        select a from Appointment a
+        where a.appointmentDate = :date
+          and a.reminderSet = true
+          and a.reminderSentAt is null
+          and a.status in ('payed', 'confirmed')
+          and a.timeSlot >= :minStart
+          and a.timeSlot <= :maxStart
+        order by a.timeSlot asc
+        """)
+    List<Appointment> findDueReminders(@Param("date") String date,
+                                       @Param("minStart") String minStart,
+                                       @Param("maxStart") String maxStart);
 }

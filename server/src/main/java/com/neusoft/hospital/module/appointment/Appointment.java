@@ -50,6 +50,10 @@ public class Appointment {
     @Column(name = "reminder_set", nullable = false)
     private boolean reminderSet;
 
+    /** Wall-clock epoch ms when the SMS reminder was sent; null until sent. */
+    @Column(name = "reminder_sent_at")
+    private Long reminderSentAt;
+
     @Column(name = "create_time", nullable = false)
     private long createTime;
 
