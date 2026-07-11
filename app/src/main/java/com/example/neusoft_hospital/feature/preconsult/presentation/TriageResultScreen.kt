@@ -1,15 +1,19 @@
 package com.example.neusoft_hospital.feature.preconsult.presentation
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -18,6 +22,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import com.example.neusoft_hospital.feature.appointment.data.AppointmentRepository
+import com.example.neusoft_hospital.feature.auth.domain.DepartmentRecommendation
 import com.example.neusoft_hospital.feature.auth.domain.TriageResult
 import com.example.neusoft_hospital.feature.preconsult.data.PreConsultRepository
 import com.example.neusoft_hospital.navigation.Routes
@@ -30,8 +35,23 @@ import javax.inject.Inject
 data class TriageUiState(
     val result: TriageResult? = null,
     val symptoms: String = "",
-    val loading: Boolean = false
+    val loading: Boolean = false,
+    val error: String? = null
 )
+
+/** Maps raw 0..1 confidence into a 0..1 strength bucket + label the UI can show. */
+private data class MatchStrength(val label: String, val ratio: Float, val color: Color)
+
+@Composable
+private fun matchStrength(confidence: Float): MatchStrength {
+    val scheme = MaterialTheme.colorScheme
+    return when {
+        confidence >= 0.6f -> MatchStrength("强烈推荐", (confidence / 0.9f).coerceIn(0f, 1f), scheme.primary)
+        confidence >= 0.3f -> MatchStrength("可能匹配", (confidence / 0.6f).coerceIn(0f, 1f), scheme.tertiary)
+        confidence >= 0.15f -> MatchStrength("建议尝试", (confidence / 0.3f).coerceIn(0f, 1f), scheme.secondary)
+        else -> MatchStrength("参考", confidence.coerceIn(0f, 1f), scheme.outline)
+    }
+}
 
 @HiltViewModel
 class TriageResultViewModel @Inject constructor(
@@ -51,11 +71,21 @@ class TriageResultViewModel @Inject constructor(
 
     fun triage(symptoms: String) {
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(loading = true)
+            _ui.value = _ui.value.copy(loading = true, error = null)
             val list = symptoms.split("、", "，", ",").map { it.trim() }.filter { it.isNotEmpty() }
-            repo.triage(list).onSuccess { _ui.value = _ui.value.copy(result = it, loading = false) }
-                .onFailure { _ui.value = _ui.value.copy(loading = false) }
+            repo.triage(list)
+                .onSuccess { _ui.value = _ui.value.copy(result = it, loading = false) }
+                .onFailure { e ->
+                    _ui.value = _ui.value.copy(
+                        loading = false,
+                        error = e.message ?: "分诊失败，请稍后重试"
+                    )
+                }
         }
+    }
+
+    fun retry() {
+        if (_ui.value.symptoms.isNotBlank()) triage(_ui.value.symptoms)
     }
 }
 
@@ -73,10 +103,32 @@ fun TriageResultScreen(navController: NavController, vm: TriageResultViewModel =
             )
         }
     ) { pad ->
-        if (ui.loading || result == null) {
+        if (ui.loading || (result == null && ui.error == null)) {
             Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             return@Scaffold
         }
+
+        val errorMsg = ui.error
+        if (errorMsg != null) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(pad).padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(Icons.Default.ErrorOutline, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(48.dp))
+                Spacer(Modifier.height(12.dp))
+                Text(errorMsg, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = { navController.popBackStack() }) { Text("返回补充") }
+                    Button(onClick = vm::retry) { Text("重试") }
+                }
+            }
+            return@Scaffold
+        }
+
+        // result is non-null here
+        val safeResult = result!!
         LazyColumn(modifier = Modifier.fillMaxSize().padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
@@ -91,14 +143,18 @@ fun TriageResultScreen(navController: NavController, vm: TriageResultViewModel =
                 }
             }
 
-            if (result.possibleDiseases.isNotEmpty()) {
+            if (safeResult.possibleDiseases.isNotEmpty()) {
                 item { Text("可能疾病", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary) }
-                items(result.possibleDiseases) { d ->
+                items(safeResult.possibleDiseases) { d ->
                     Card {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(d.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                                Text("${(d.probability * 100).toInt()}%", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                                Text(
+                                    text = "${(d.probability * 100).toInt()}%",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             }
                             Text(d.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -106,34 +162,81 @@ fun TriageResultScreen(navController: NavController, vm: TriageResultViewModel =
                 }
             }
 
-            item { Text("推荐科室", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary) }
-            items(result.recommendedDepartments) { rec ->
-                Card(
-                    modifier = Modifier.fillMaxWidth().clickable {
-                        navController.navigate(Routes.DoctorList.create(rec.department.id))
-                    }
-                ) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.LocalHospital, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(rec.department.name, style = MaterialTheme.typography.titleMedium)
-                            Text(rec.department.desc, style = MaterialTheme.typography.bodySmall)
-                        }
-                        Text("${(rec.confidence * 100).toInt()}%", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                        Icon(Icons.Default.ChevronRight, null)
-                    }
-                }
+            item {
+                Text(
+                    "推荐科室（共 ${safeResult.recommendedDepartments.size} 个）",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            items(safeResult.recommendedDepartments) { rec ->
+                RecommendedDepartmentCard(rec = rec, onClick = {
+                    navController.navigate(Routes.DoctorList.create(rec.department.id))
+                })
             }
 
             item {
-                Button(onClick = {
-                    val topDept = result.recommendedDepartments.firstOrNull()?.department
-                    if (topDept != null) navController.navigate(Routes.DoctorList.create(topDept.id))
-                }, modifier = Modifier.fillMaxWidth()) {
-                    Text("一键挂号")
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        val topDept = safeResult.recommendedDepartments.firstOrNull()?.department
+                        if (topDept != null) navController.navigate(Routes.DoctorList.create(topDept.id))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = safeResult.recommendedDepartments.isNotEmpty()
+                ) {
+                    Icon(Icons.Default.EventAvailable, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("一键挂号：${safeResult.recommendedDepartments.firstOrNull()?.department?.name ?: "—"}")
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { navController.popBackStack() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Edit, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("补充或修改症状")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RecommendedDepartmentCard(rec: DepartmentRecommendation, onClick: () -> Unit) {
+    val strength = matchStrength(rec.confidence)
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+    ) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.LocalHospital, null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(rec.department.name, style = MaterialTheme.typography.titleMedium)
+                Text(rec.department.desc, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(strength.ratio)
+                            .height(4.dp)
+                            .background(strength.color)
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                Text(strength.label, color = strength.color, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                Text("${(rec.confidence * 100).toInt()}%", color = strength.color, style = MaterialTheme.typography.labelSmall)
+            }
+            Icon(Icons.Default.ChevronRight, null)
         }
     }
 }

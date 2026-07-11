@@ -48,6 +48,17 @@ management:
   info:
     env:
       enabled: false
+    java:
+      enabled: true
+    os:
+      enabled: true
+    build:
+      enabled: true
+    app:
+      name: ${spring.application.name}
+      version: @project.version@
+      description: Neusoft Hospital Android backend
+      encoding: UTF-8
 
 # JWT — secret MUST be provided via env in production.
 # Override at startup: JWT_SECRET=... java -jar app.jar

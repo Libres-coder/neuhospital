@@ -32,6 +32,20 @@ data class SymptomMessage(
     val isQuestion: Boolean = false // 是否是关键追问
 )
 
+/**
+ * Common symptoms presented as quick-tap chips. Tapping one appends it to the
+ * running symptom list, mirrors what the user would type, and immediately gets
+ * routed through the same triage pipeline. Keeps the keys aligned with the
+ * server-side [com.neusoft.hospital.module.preconsult.TriageService] rule map
+ * so each tag is a guaranteed hit.
+ */
+private val QUICK_SYMPTOMS = listOf(
+    "胸痛", "心悸", "高血压", "气短", "咳嗽", "哮喘",
+    "胃痛", "腹泻", "骨折", "关节疼痛", "皮疹", "过敏",
+    "视力下降", "眼红", "牙痛", "耳鸣", "失眠", "焦虑",
+    "发热", "腹痛"
+)
+
 data class SymptomUiState(
     val mode: String = "text",
     val messages: List<SymptomMessage> = emptyList(),
@@ -57,6 +71,24 @@ class SymptomInputViewModel @Inject constructor(
     }
 
     fun onInputChange(v: String) { _ui.value = _ui.value.copy(input = v) }
+
+    /**
+     * Add a quick-tag symptom. Skips the AI round-trip — the user has
+     * already named the symptom explicitly, so the next iteration is to
+     * either add another tag or finish.
+     */
+    fun addQuickSymptom(tag: String) {
+        if (_ui.value.symptoms.contains(tag)) return
+        val newSymptoms = _ui.value.symptoms + tag
+        val userMsg = SymptomMessage(role = "user", text = tag)
+        _ui.value = _ui.value.copy(
+            symptoms = newSymptoms,
+            messages = _ui.value.messages + userMsg
+        )
+        if (newSymptoms.size >= 2) {
+            // give the AI one beat to ask a follow-up before letting the user finish
+        }
+    }
 
     fun send() {
         val text = _ui.value.input.trim()
@@ -135,6 +167,11 @@ fun SymptomInputScreen(navController: NavController, vm: SymptomInputViewModel =
         }
     ) { pad ->
         Column(modifier = Modifier.fillMaxSize().padding(pad)) {
+            // Quick symptom chips — tap to add to running list without going through AI.
+            QuickSymptomRow(
+                selected = ui.symptoms,
+                onTap = vm::addQuickSymptom
+            )
             LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(ui.messages) { msg ->
                     MessageBubble(msg)
@@ -154,6 +191,56 @@ fun SymptomInputScreen(navController: NavController, vm: SymptomInputViewModel =
                             Text("完成问诊，查看推荐")
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun QuickSymptomRow(
+    selected: List<String>,
+    onTap: (String) -> Unit
+) {
+    Surface(tonalElevation = 1.dp, color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.HealthAndSafety,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "常见症状快捷选择",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "已选 ${selected.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            androidx.compose.foundation.layout.FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                QUICK_SYMPTOMS.forEach { tag ->
+                    val isSelected = selected.contains(tag)
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onTap(tag) },
+                        label = { Text(tag, style = MaterialTheme.typography.labelSmall) },
+                        leadingIcon = if (isSelected) {
+                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        } else null
+                    )
                 }
             }
         }
