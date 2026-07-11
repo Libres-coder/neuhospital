@@ -13,8 +13,12 @@ import com.example.neusoft_hospital.feature.appointment.data.MockAppointmentApi
 import com.example.neusoft_hospital.feature.appointment.data.RetrofitAppointmentApi
 import com.example.neusoft_hospital.feature.auth.data.AuthApiService
 import com.example.neusoft_hospital.feature.auth.data.AuthApiServiceRetrofit
+import com.example.neusoft_hospital.feature.auth.data.FamilyApiService
+import com.example.neusoft_hospital.feature.auth.data.FamilyApiServiceRetrofit
 import com.example.neusoft_hospital.feature.auth.data.MockAuthApi
+import com.example.neusoft_hospital.feature.auth.data.MockFamilyApi
 import com.example.neusoft_hospital.feature.auth.data.RetrofitAuthApi
+import com.example.neusoft_hospital.feature.auth.data.RetrofitFamilyApi
 import com.example.neusoft_hospital.feature.followup.data.ChronicApiServiceRetrofit
 import com.example.neusoft_hospital.feature.followup.data.FollowUpApiServiceRetrofit
 import com.example.neusoft_hospital.feature.preconsult.data.PreConsultApiServiceRetrofit
@@ -112,6 +116,18 @@ object NetworkModule {
         mock: dagger.Lazy<MockAuthApi>,
         real: dagger.Lazy<RetrofitAuthApi>
     ): AuthApiService = if (ApiProvider.useMock) mock.get() else real.get()
+
+    // ------------------- Family -------------------
+
+    @Provides @Singleton
+    fun provideFamilyRetrofit(retrofit: Retrofit): FamilyApiServiceRetrofit =
+        retrofit.create(FamilyApiServiceRetrofit::class.java)
+
+    @Provides @Singleton
+    fun provideFamilyApi(
+        mock: dagger.Lazy<MockFamilyApi>,
+        real: dagger.Lazy<RetrofitFamilyApi>
+    ): FamilyApiService = if (ApiProvider.useMock) mock.get() else real.get()
 
     // ------------------- Appointment -------------------
 

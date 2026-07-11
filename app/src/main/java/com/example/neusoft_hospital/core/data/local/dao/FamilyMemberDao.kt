@@ -26,4 +26,7 @@ interface FamilyMemberDao {
 
     @Query("UPDATE family_members SET isDefault = 1 WHERE id = :id")
     suspend fun setDefault(id: String)
+
+    @Query("DELETE FROM family_members WHERE ownerId = :ownerId")
+    suspend fun deleteAllForOwner(ownerId: String)
 }

@@ -3,8 +3,14 @@ package com.example.neusoft_hospital.feature.auth.data
 import com.example.neusoft_hospital.core.data.local.dao.FamilyMemberDao
 import com.example.neusoft_hospital.core.data.local.entity.FamilyMemberEntity
 import com.example.neusoft_hospital.core.data.prefs.UserPreferences
+import com.example.neusoft_hospital.core.network.ApiProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -12,9 +18,21 @@ import javax.inject.Singleton
 @Singleton
 class AuthRepository @Inject constructor(
     private val api: AuthApiService,
+    private val familyApi: FamilyApiService,
     private val prefs: UserPreferences,
     private val familyDao: FamilyMemberDao
 ) {
+    /** Application-scoped scope used for fire-and-forget server refreshes. */
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private fun launchSafe(block: suspend () -> Unit) {
+        backgroundScope.launch {
+            try { block() } catch (_: Throwable) {}
+        }
+    }
+
+    // helpers above; the rest stays the same
+
     suspend fun sendSms(phone: String): Result<String> = api.sendSms(phone)
 
     suspend fun verifySms(phone: String, code: String): Result<LoginResponse> {
@@ -27,17 +45,27 @@ class AuthRepository @Inject constructor(
                 name = r.name,
                 phone = r.phone
             )
-            // add self as default family member
-            familyDao.insert(FamilyMemberEntity(
-                id = r.userId,
-                ownerId = r.userId,
-                name = r.name,
-                phone = r.phone,
-                idCard = "",
-                relation = "本人",
-                isDefault = true
-            ))
-            prefs.setCurrentPatient(r.userId)
+            // Pull the server-canonical family list (server auto-seeds the
+            // self ("本人") member on first call). Replace local cache so a
+            // fresh device immediately sees the same state.
+            launchSafe {
+                runCatching { refreshFamilyFromServer(r.userId) }
+                    .onFailure {
+                        // server may be offline in mock/dev — fall back to local insert
+                        familyDao.insert(
+                            FamilyMemberEntity(
+                                id = r.userId,
+                                ownerId = r.userId,
+                                name = r.name,
+                                phone = r.phone,
+                                idCard = "",
+                                relation = "本人",
+                                isDefault = true
+                            )
+                        )
+                        prefs.setCurrentPatient(r.userId)
+                    }
+            }
         }
         return resp
     }
@@ -59,10 +87,41 @@ class AuthRepository @Inject constructor(
         return resp
     }
 
-    fun getFamilyMembers(): Flow<List<FamilyMemberEntity>> {
-        return kotlinx.coroutines.flow.flow {
-            val ownerId = prefs.tokenFlow.first()
-            familyDao.getByOwner(ownerId).collect { emit(it) }
+    /**
+     * Reactive stream of family members. Backed by Room (offline-readable),
+     * but we refresh from the server on first subscription and after every
+     * mutation. If the server is unreachable and we're in real-mode, the
+     * cached Room list is still shown.
+     */
+    fun getFamilyMembers(): Flow<List<FamilyMemberEntity>> = flow {
+        val ownerId = prefs.tokenFlow.first()
+        launchSafe { refreshFamilyFromServer(ownerId) }
+        familyDao.getByOwner(ownerId).collect { emit(it) }
+    }
+
+    /**
+     * Pull server-side list and write all rows into Room. Returns the
+     * server's "current patient" id and persists it in preferences.
+     */
+    private suspend fun refreshFamilyFromServer(ownerId: String) {
+        val resp = familyApi.list().getOrNull() ?: return
+        val entities = resp.members.map { d ->
+            FamilyMemberEntity(
+                id = d.id,
+                ownerId = d.ownerId,
+                name = d.name,
+                phone = d.phone,
+                idCard = d.idCard,
+                relation = d.relation,
+                avatar = d.avatar,
+                isDefault = d.isDefault
+            )
+        }
+        // Wipe + re-insert so deleted-on-server rows disappear.
+        familyDao.deleteAllForOwner(ownerId)
+        entities.forEach { familyDao.insert(it) }
+        if (resp.currentPatientId.isNotBlank()) {
+            prefs.setCurrentPatient(resp.currentPatientId)
         }
     }
 
@@ -73,25 +132,71 @@ class AuthRepository @Inject constructor(
         idCard: String,
         relation: String
     ): Result<FamilyMemberEntity> {
-        val entity = FamilyMemberEntity(
-            id = UUID.randomUUID().toString(),
-            ownerId = ownerId,
-            name = name,
-            phone = phone,
-            idCard = idCard,
-            relation = relation
+        val remote = familyApi.add(
+            FamilyAddReqDto(
+                name = name,
+                phone = phone,
+                idCard = idCard,
+                relation = relation
+            )
         )
-        familyDao.insert(entity)
-        return Result.success(entity)
+        if (remote.isSuccess) {
+            val dto = remote.getOrNull()!!
+            val entity = FamilyMemberEntity(
+                id = dto.id,
+                ownerId = dto.ownerId,
+                name = dto.name,
+                phone = dto.phone,
+                idCard = dto.idCard,
+                relation = dto.relation,
+                avatar = dto.avatar,
+                isDefault = dto.isDefault
+            )
+            familyDao.insert(entity)
+            return Result.success(entity)
+        }
+        // server unreachable / mock — keep the original local-only behavior
+        if (ApiProvider.useMock) {
+            val local = FamilyMemberEntity(
+                id = UUID.randomUUID().toString(),
+                ownerId = ownerId,
+                name = name,
+                phone = phone,
+                idCard = idCard,
+                relation = relation
+            )
+            familyDao.insert(local)
+            return Result.success(local)
+        }
+        return Result.failure(remote.exceptionOrNull() ?: Exception("add failed"))
     }
 
-    suspend fun updateFamilyMember(entity: FamilyMemberEntity) = familyDao.update(entity)
+    suspend fun updateFamilyMember(entity: FamilyMemberEntity): Result<FamilyMemberEntity> {
+        // Optimistic local update so UI updates instantly.
+        familyDao.update(entity)
+        val remote = familyApi.update(
+            entity.id,
+            FamilyUpdateReqDto(
+                name = entity.name,
+                phone = entity.phone,
+                idCard = entity.idCard,
+                relation = entity.relation,
+                avatar = entity.avatar
+            )
+        )
+        return if (remote.isSuccess) Result.success(entity) else Result.failure(remote.exceptionOrNull() ?: Exception("update failed"))
+    }
 
-    suspend fun deleteFamilyMember(entity: FamilyMemberEntity) = familyDao.delete(entity)
+    suspend fun deleteFamilyMember(entity: FamilyMemberEntity): Result<Unit> {
+        val remote = familyApi.delete(entity.id)
+        if (remote.isSuccess) familyDao.delete(entity)
+        return remote
+    }
 
     suspend fun setDefaultMember(memberId: String, ownerId: String) {
-        familyDao.clearDefault(ownerId)
-        familyDao.setDefault(memberId)
+        familyApi.setDefault(memberId).onSuccess {
+            refreshFamilyFromServer(ownerId)
+        }
         prefs.setCurrentPatient(memberId)
     }
 
