@@ -130,6 +130,11 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                    <!-- Layered jar so the Dockerfile can COPY each layer individually,
+                         maximising Docker build cache hit rate when only app code changes. -->
+                    <layers>
+                        <enabled>true</enabled>
+                    </layers>
                 </configuration>
                 <executions>
                     <execution>

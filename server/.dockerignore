@@ -1,0 +1,9 @@
+target/
+.idea/
+*.iml
+.vscode/
+.git/
+logs/
+Dockerfile
+.dockerignore
+.docker-compose-tmp/

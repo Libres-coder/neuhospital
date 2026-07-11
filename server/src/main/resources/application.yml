@@ -10,11 +10,11 @@ spring:
   application:
     name: hospital-server
   datasource:
-    # NOTE: replace `root` with your local MySQL password.
-    # If your MySQL has no password, set password: ""
-    url: jdbc:mysql://127.0.0.1:3306/neusoft_hospital?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true
-    username: root
-    password: 123456
+    # In Docker compose, DB_HOST points at the `mysql` service.
+    # In local dev (running the jar directly), default to 127.0.0.1.
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:neusoft_hospital}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
