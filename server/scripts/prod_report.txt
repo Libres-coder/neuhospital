@@ -1,0 +1,12 @@
+OK    CHECK                        INFO
+------------------------------------------------------------------------------------------
+YES   traceId header==body         http=200 hdr=20f18b3859334a80a6bb418d body=20f18b3859334a80a6bb418d
+YES   500 hides internal stack     http=500 leaky=False msg=server error, please retry (traceId=46bcd9103fcd4ac6bf27e7fe)
+YES   401/403 with envelope        http=401 body={"code":401,"message":"未登录或登录已过期","data":null,"traceId":"5690eb2189994e2e8822c2cd"}
+YES   400 validation w/ traceId    http=400 body={"code":400,"message":"身份证号必须为 18 位","data":null,"traceId":"54095f571e7e4daba439eadc"}
+YES   AI persona reply             reply=我是你是"东软医院"的智能导诊助理。请用简洁、温暖、专业的语气回答；若涉及急重症，请立即建议拨打 120。——我可以帮您做症状咨询、就诊科室推荐、检查报告解读与日常健康问答。
+YES   CORS header present          acao=https://example.com
+YES   actuator/health public       http=200 body={"status":"UP","groups":["liveness","readiness"]}
+YES   actuator/env not exposed     http=401
+------------------------------------------------------------------------------------------
+8/8 checks passed

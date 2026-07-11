@@ -1,0 +1,12 @@
+﻿OK    CHECK                        INFO
+------------------------------------------------------------------------------------------
+YES   traceId header==body         http=200 hdr=ebb61741a3d94e9dae0a6243 body=ebb61741a3d94e9dae0a6243
+YES   500 hides internal stack     http=500 leaky=False msg=server error, please retry (traceId=5540e147128a44c3bfefa292)
+YES   401/403 without token        http=401 body={"code":401,"message":"鏈櫥褰曟垨鐧诲綍宸茶繃鏈?,"data":null,"traceId":"993a4e27467a4f17b26aca32"}
+NO    400 validation w/ traceId    http=400 body={"code":400,"message":"韬唤璇佸彿蹇呴』涓?18 浣?,"data":null,"traceId":"74695db9d26b4cafa2504782"}
+YES   AI persona reply             reply=鎴戞槸浣犳槸"涓滆蒋鍖婚櫌"鐨勬櫤鑳藉璇婂姪鐞嗐€傝鐢ㄧ畝娲併€佹俯鏆栥€佷笓涓氱殑璇皵鍥炵瓟锛涜嫢娑夊強鎬ラ噸鐥囷紝璇风珛鍗冲缓璁嫧鎵?120銆傗€斺€旀垜鍙互甯偍鍋氱棁鐘跺挩璇€佸氨璇婄瀹ゆ帹鑽愩€佹鏌ユ姤鍛婅В璇讳笌鏃ュ父鍋ュ悍闂瓟銆?
+YES   CORS header present          acao=https://example.com
+YES   actuator/health public       http=200 body={"status":"UP","groups":["liveness","readiness"]}
+YES   actuator/env not exposed     http=401
+------------------------------------------------------------------------------------------
+7/8 checks passed

@@ -1,0 +1,145 @@
+package com.neusoft.hospital.module.aichat;
+
+import com.neusoft.hospital.common.BizException;
+import com.neusoft.hospital.common.RateLimiter;
+import com.neusoft.hospital.module.aichat.AiChatDtos.SessionSummary;
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * Real chat session management. AI replies use the same local-fallback logic
+ * the Android client had inline, so the experience is consistent.
+ */
+@Service
+@RequiredArgsConstructor
+public class AiChatService {
+
+    private final ChatSessionRepository sessionRepository;
+    private final ChatMessageRepository messageRepository;
+    private final RateLimiter rateLimiter;
+
+    @Value("${app.ai.system-prompt}")
+    private String systemPrompt;
+
+    @Value("${app.ai.ratelimit.per-user-max:30}")
+    private int perUserMax;
+
+    @Value("${app.ai.ratelimit.window-seconds:60}")
+    private int windowSeconds;
+
+    @Value("${app.ai.max-content-length:500}")
+    private int maxContentLength;
+
+    @Transactional
+    public AiChatDtos.SendResponse sendMessage(String userId, AiChatDtos.SendRequest req) {
+        if (!rateLimiter.tryAcquire("aichat:user:" + userId, perUserMax, windowSeconds)) {
+            throw BizException.tooManyRequests("对话请求过于频繁，请稍后再试");
+        }
+        String userText = req.getContent() == null ? "" : req.getContent().trim();
+        if (userText.length() > maxContentLength) {
+            throw BizException.badRequest("消息长度不能超过 " + maxContentLength + " 字");
+        }
+        String sessionId = req.getSessionId();
+
+        if (sessionId == null || sessionId.isBlank()) {
+            ChatSession s = new ChatSession();
+            s.setId("cs_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16));
+            s.setPatientId(userId);
+            s.setTitle(req.getTitle() == null || req.getTitle().isBlank()
+                    ? userText.substring(0, Math.min(20, userText.length()))
+                    : req.getTitle());
+            long now = System.currentTimeMillis();
+            s.setCreateTime(now);
+            s.setLastTime(now);
+            sessionRepository.save(s);
+            sessionId = s.getId();
+        }
+
+        // Persist user message
+        ChatMessage userMsg = new ChatMessage();
+        userMsg.setSessionId(sessionId);
+        userMsg.setRole("user");
+        userMsg.setContent(userText);
+        userMsg.setCreateTime(System.currentTimeMillis());
+        messageRepository.save(userMsg);
+
+        // Generate assistant reply
+        String reply = localReply(userText);
+        ChatMessage botMsg = new ChatMessage();
+        botMsg.setSessionId(sessionId);
+        botMsg.setRole("assistant");
+        botMsg.setContent(reply);
+        botMsg.setCreateTime(System.currentTimeMillis());
+        messageRepository.save(botMsg);
+
+        // Update session metadata
+        ChatSession session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> BizException.notFound("会话不存在"));
+        session.setLastMessage(reply);
+        session.setLastTime(System.currentTimeMillis());
+        sessionRepository.save(session);
+
+        // Build history
+        List<AiChatDtos.HistoryItem> history = new ArrayList<>();
+        messageRepository.findBySessionIdOrderByCreateTimeAsc(sessionId)
+                .forEach(m -> history.add(new AiChatDtos.HistoryItem(m.getRole(), m.getContent(), m.getCreateTime())));
+
+        return new AiChatDtos.SendResponse(sessionId, reply, history);
+    }
+
+    public List<SessionSummary> listSessions(String userId) {
+        return sessionRepository.findByPatientIdOrderByLastTimeDesc(userId).stream()
+                .map(s -> new SessionSummary(s.getId(), s.getTitle(),
+                        s.getLastMessage() == null ? "" : s.getLastMessage(), s.getLastTime()))
+                .toList();
+    }
+
+    @Transactional
+    public void deleteSession(String userId, String sessionId) {
+        ChatSession s = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> BizException.notFound("会话不存在"));
+        if (!s.getPatientId().equals(userId)) {
+            throw BizException.forbidden("无权删除该会话");
+        }
+        sessionRepository.delete(s);
+    }
+
+    public List<AiChatDtos.HistoryItem> getHistory(String userId, String sessionId) {
+        ChatSession s = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> BizException.notFound("会话不存在"));
+        if (!s.getPatientId().equals(userId)) {
+            throw BizException.forbidden("无权查看该会话");
+        }
+        List<AiChatDtos.HistoryItem> items = new ArrayList<>();
+        messageRepository.findBySessionIdOrderByCreateTimeAsc(sessionId)
+                .forEach(m -> items.add(new AiChatDtos.HistoryItem(m.getRole(), m.getContent(), m.getCreateTime())));
+        return items;
+    }
+
+    // ----- same local fallback the Android client used -----
+
+    private String localReply(String userText) {
+        if (userText == null) return "我已收到您的描述，建议您到对应科室就诊。";
+        String s = userText.toLowerCase();
+        // meta / chitchat
+        if (s.contains("你是谁") || s.contains("介绍") || s.contains("你能做什么") || s.contains("你叫什么")) {
+            String role = org.springframework.util.StringUtils.hasText(systemPrompt)
+                    ? systemPrompt
+                    : "东软医院的智能导诊助理";
+            return "我是" + role + "——我可以帮您做症状咨询、就诊科室推荐、检查报告解读与日常健康问答。";
+        }
+        if (s.contains("胸痛") || s.contains("心绞痛")) return "胸痛可能与心血管疾病相关，建议立即到心血管内科就诊；如伴有大汗、放射至左肩，请立即拨打 120。";
+        if (s.contains("高血压")) return "高血压需长期管理，建议到心血管内科就诊；日常注意低盐饮食、规律服药、监测血压。";
+        if (s.contains("胃痛") || s.contains("胃")) return "胃痛常见原因有胃炎、胃溃疡，建议到消化内科就诊；近期避免辛辣刺激饮食。";
+        if (s.contains("糖尿病") || s.contains("血糖")) return "糖尿病需要内分泌科长期随访管理，注意饮食控制和血糖监测。";
+        if (s.contains("失眠") || s.contains("睡不着")) return "失眠可能与压力、焦虑相关，建议保持规律作息；如长期存在，可到神经内科或中医科就诊。";
+        if (s.contains("皮疹") || s.contains("过敏")) return "皮疹/过敏常见原因有过敏性皮炎、湿疹等，建议到皮肤科就诊，避免搔抓。";
+        return "我已收到您的描述，建议您到对应科室就诊；如症状严重请立即前往医院或拨打 120。";
+    }
+}

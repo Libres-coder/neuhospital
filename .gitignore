@@ -1,0 +1,45 @@
+# IDE / OS
+*.iml
+.DS_Store
+.gradle/
+/build/
+/captures/
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+
+# Android - local config (per-machine)
+/local.properties
+
+# Android - build outputs (already covered by /build but spelled out)
+/app/build/
+/app/release/
+/app/debug/
+
+# Kotlin
+.kotlin/
+
+# Native builds
+.externalNativeBuild/
+.cxx/
+
+# Server (Spring Boot)
+/server/target/
+/server/logs/
+/server/triage-payload.bin
+/server/*.log
+/server/.idea/
+/server/*.iml
+
+# Server debugging artifacts (request/response captures)
+/server/login.json
+/server/logout.json
+/server/out.json
+/server/req.json
+/server/resp.json
+
+# Local probe / smoke artifacts (kept in scripts/ which is committed)
+/server/probe.bin

@@ -1,0 +1,101 @@
+server:
+  port: 8090
+  servlet:
+    context-path: /
+  error:
+    include-message: never
+    include-stacktrace: never
+
+spring:
+  application:
+    name: hospital-server
+  datasource:
+    # NOTE: replace `root` with your local MySQL password.
+    # If your MySQL has no password, set password: ""
+    url: jdbc:mysql://127.0.0.1:3306/neusoft_hospital?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true
+    username: root
+    password: 123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+  mvc:
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
+
+# Actuator: only health + info exposed. Everything else is denied by SecurityConfig.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  info:
+    env:
+      enabled: false
+
+# JWT — secret MUST be provided via env in production.
+# Override at startup: JWT_SECRET=... java -jar app.jar
+# Two-tier token: short-lived access (15 min) + long-lived refresh (7 days), refresh is
+# single-use (server tracks the rotation by `jti`).
+app:
+  jwt:
+    secret: ${JWT_SECRET:neusoft-hospital-dev-secret-key-please-rotate-in-production}
+    access-ttl-seconds: 900         # 15 minutes
+    refresh-ttl-seconds: 604800     # 7 days
+    issuer: neusoft-hospital
+  sms:
+    # dev: always accept this code. Production: leave blank and plug in a real SMS gateway.
+    fixed-code: ${SMS_FIXED_CODE:123456}
+    ttl-seconds: 300
+  cors:
+    # dev defaults to wildcard; production must list exact origins
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+    allow-credentials: ${CORS_ALLOW_CREDENTIALS:false}
+  ai:
+    system-prompt: ${AI_SYSTEM_PROMPT:你是"东软医院"的智能导诊助理。请用简洁、温暖、专业的语气回答；若涉及急重症，请立即建议拨打 120。}
+    # per-user AI calls
+    ratelimit:
+      per-user-max: 30
+      window-seconds: 60
+    max-content-length: 500
+  # Rate limiting (single-instance dev). For prod multi-instance, swap Caffeine for Redis Lua.
+  ratelimit:
+    max-keys: 50000
+    idle-minutes: 30
+    sms:
+      per-phone-max: 5
+      per-phone-window-seconds: 60
+      per-ip-max: 20
+      per-ip-window-seconds: 60
+
+# OpenAPI
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+
+logging:
+  level:
+    com.neusoft.hospital: INFO
+    org.springframework.security: INFO
+  pattern:
+    # include traceId in every log line
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-}] %logger{36} - %msg%n"
