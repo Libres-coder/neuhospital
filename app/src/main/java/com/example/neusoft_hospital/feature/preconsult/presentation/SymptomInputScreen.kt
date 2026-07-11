@@ -1,5 +1,7 @@
 package com.example.neusoft_hospital.feature.preconsult.presentation
 
+import android.content.Context
+import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -9,7 +11,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -19,6 +23,7 @@ import com.example.neusoft_hospital.feature.ai.data.QwenClient
 import com.example.neusoft_hospital.feature.preconsult.data.PreConsultRepository
 import com.example.neusoft_hospital.navigation.Routes
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -59,6 +64,7 @@ data class SymptomUiState(
 class SymptomInputViewModel @Inject constructor(
     private val repo: PreConsultRepository,
     private val qwen: QwenClient,
+    @ApplicationContext private val appCtx: Context,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val mode: String = savedStateHandle.get<String>("mode") ?: "text"
@@ -120,6 +126,43 @@ class SymptomInputViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Image-mode submission: read the picked Uri, hand the bytes to the
+     * server's multipart endpoint which calls qwen-vl-plus.
+     */
+    fun submitImage(uri: Uri, mimeType: String) {
+        viewModelScope.launch {
+            _ui.value = _ui.value.copy(loading = true)
+            try {
+                val bytes = appCtx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: throw RuntimeException("无法读取图片")
+                val mime = if (mimeType.isBlank()) "image/jpeg" else mimeType
+                repo.triageImage(bytes, mime, _ui.value.symptoms).fold(
+                    onSuccess = {
+                        _ui.value = _ui.value.copy(loading = false, done = true)
+                    },
+                    onFailure = {
+                        _ui.value = _ui.value.copy(
+                            loading = false,
+                            messages = _ui.value.messages + SymptomMessage(
+                                role = "assistant",
+                                text = "图片分析失败：${it.message ?: "未知错误"}，请改用文字描述。"
+                            )
+                        )
+                    }
+                )
+            } catch (e: Exception) {
+                _ui.value = _ui.value.copy(
+                    loading = false,
+                    messages = _ui.value.messages + SymptomMessage(
+                        role = "assistant",
+                        text = "图片读取失败：${e.message ?: "未知错误"}"
+                    )
+                )
+            }
+        }
+    }
+
     private fun addAssistant(text: String) {
         _ui.value = _ui.value.copy(messages = _ui.value.messages + SymptomMessage(role = "assistant", text = text))
     }
@@ -141,6 +184,16 @@ fun SymptomInputScreen(navController: NavController, vm: SymptomInputViewModel =
         }
     }
 
+    val context = LocalContext.current
+    val pickImage = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
+            vm.submitImage(uri, mime)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -155,12 +208,21 @@ fun SymptomInputScreen(navController: NavController, vm: SymptomInputViewModel =
                         value = ui.input,
                         onValueChange = vm::onInputChange,
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text("描述症状…") },
+                        placeholder = { Text(if (ui.mode == "image") "附加说明（可选）" else "描述症状…") },
                         maxLines = 3
                     )
                     Spacer(Modifier.width(8.dp))
-                    IconButton(onClick = vm::send, enabled = !ui.loading && ui.input.isNotBlank()) {
-                        Icon(Icons.Default.Send, null)
+                    if (ui.mode == "image") {
+                        IconButton(onClick = { pickImage.launch("image/*") }, enabled = !ui.loading) {
+                            Icon(Icons.Default.PhotoCamera, contentDescription = "选择照片")
+                        }
+                        IconButton(onClick = vm::submitSymptoms, enabled = !ui.loading) {
+                            Icon(Icons.Default.Send, contentDescription = "提交")
+                        }
+                    } else {
+                        IconButton(onClick = vm::send, enabled = !ui.loading && ui.input.isNotBlank()) {
+                            Icon(Icons.Default.Send, null)
+                        }
                     }
                 }
             }

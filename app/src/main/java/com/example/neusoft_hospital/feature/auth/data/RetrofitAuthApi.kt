@@ -45,6 +45,12 @@ class RetrofitAuthApi @Inject constructor(
         resp.data?.ehsCardNo ?: cardNo
     }.mapHttpError()
 
+    override suspend fun bindMedicalInsurance(cardNo: String): Result<MedicalInsuranceDto> = runCatching {
+        val resp = service.bindMedicalInsurance(BindMiReqDto(cardNo))
+        if (resp.code != 0) throw RuntimeException(resp.message ?: "bind-mi failed")
+        resp.data ?: throw RuntimeException("empty bind-mi response")
+    }.mapHttpError()
+
     override suspend fun logout(): Result<Unit> = runCatching {
         val resp = service.logout()
         if (resp.code != 0) throw RuntimeException(resp.message ?: "logout failed")

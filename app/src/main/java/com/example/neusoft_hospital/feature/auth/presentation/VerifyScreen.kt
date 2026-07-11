@@ -28,7 +28,7 @@ data class VerifyUiState(
     val idCard: String = "",
     val idCardFront: String? = null,
     val idCardBack: String? = null,
-    val ehsCardNo: String = "",
+    val medicalInsuranceNo: String = "",
     val loading: Boolean = false,
     val error: String? = null,
     val success: Boolean = false,
@@ -47,12 +47,16 @@ class VerifyViewModel @Inject constructor(private val repo: AuthRepository) : Vi
         _ui.value = _ui.value.copy(idCard = v, idCardValid = valid, error = null)
     }
 
-    fun onEhsChange(v: String) { _ui.value = _ui.value.copy(ehsCardNo = v, error = null) }
+    fun onMiChange(v: String) { _ui.value = _ui.value.copy(medicalInsuranceNo = v, error = null) }
 
     fun submitVerify() {
         val state = _ui.value
         if (state.name.isBlank() || state.idCard.length != 18) {
             _ui.value = _ui.value.copy(error = "请填写完整真实信息")
+            return
+        }
+        if (!state.idCardValid) {
+            _ui.value = _ui.value.copy(error = "身份证校验位不正确")
             return
         }
         viewModelScope.launch {
@@ -64,17 +68,22 @@ class VerifyViewModel @Inject constructor(private val repo: AuthRepository) : Vi
         }
     }
 
-    fun bindEhs() {
+    fun bindMedicalInsurance() {
+        val mi = _ui.value.medicalInsuranceNo.trim()
+        if (!(mi.matches(Regex("\\d{20}")) || mi.matches(Regex("\\d{17}[\\dXx]")))) {
+            _ui.value = _ui.value.copy(error = "医保凭证号格式不正确（20 位国家医保编码或身份证号）")
+            return
+        }
         viewModelScope.launch {
             _ui.value = _ui.value.copy(loading = true)
-            repo.bindEhsCard("", _ui.value.ehsCardNo).fold(
+            repo.bindMedicalInsurance(mi).fold(
                 onSuccess = { _ui.value = _ui.value.copy(loading = false, success = true) },
                 onFailure = { _ui.value = _ui.value.copy(loading = false, error = it.message) }
             )
         }
     }
 
-    fun skipEhs() { _ui.value = _ui.value.copy(success = true) }
+    fun skipMedicalInsurance() { _ui.value = _ui.value.copy(success = true) }
 
     fun back() { _ui.value = _ui.value.copy(step = 0) }
 }
@@ -147,23 +156,24 @@ fun VerifyScreen(navController: NavController, vm: VerifyViewModel = hiltViewMod
                 }
             } else {
                 Text("绑定医保电子凭证", style = MaterialTheme.typography.titleMedium)
-                Text("医保电子凭证由国家医保信息平台统一签发，与实体医保卡一一对应。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("国家医保局签发的 20 位医保电子凭证编码（与身份证号绑定后可直接用身份证号）。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedTextField(
-                    value = ui.ehsCardNo,
-                    onValueChange = vm::onEhsChange,
+                    value = ui.medicalInsuranceNo,
+                    onValueChange = vm::onMiChange,
                     label = { Text("医保电子凭证号") },
                     leadingIcon = { Icon(Icons.Default.LocalHospital, null) },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    singleLine = true,
+                    placeholder = { Text("20 位数字，或 18 位身份证号") }
                 )
                 if (ui.error != null) Text(ui.error!!, color = MaterialTheme.colorScheme.error)
 
                 Spacer(Modifier.weight(1f))
-                Button(onClick = vm::bindEhs, modifier = Modifier.fillMaxWidth().height(52.dp), enabled = !ui.loading && ui.ehsCardNo.isNotBlank()) {
+                Button(onClick = vm::bindMedicalInsurance, modifier = Modifier.fillMaxWidth().height(52.dp), enabled = !ui.loading && ui.medicalInsuranceNo.isNotBlank()) {
                     if (ui.loading) CircularProgressIndicator(Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
                     else Text("绑定")
                 }
-                TextButton(onClick = vm::skipEhs, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = vm::skipMedicalInsurance, modifier = Modifier.fillMaxWidth()) {
                     Text("暂不绑定")
                 }
             }

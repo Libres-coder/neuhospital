@@ -65,7 +65,7 @@ public class PreConsultController {
     @Operation(summary = "图文分诊：上传症状照片 + 可选文字症状")
     public Result<TriageResponse> triageImage(
             @RequestPart("file") MultipartFile file,
-            @RequestPart(value = "symptoms", required = false) List<String> symptoms
+            @RequestParam(value = "symptoms", required = false) List<String> symptoms
     ) throws IOException {
         if (file == null || file.isEmpty()) {
             throw BizException.badRequest("请上传症状照片");

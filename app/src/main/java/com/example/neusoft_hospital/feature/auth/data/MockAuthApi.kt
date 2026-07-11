@@ -59,6 +59,11 @@ class MockAuthApi @Inject constructor() : AuthApiService {
         return Result.success("EHS${cardNo.takeLast(8)}")
     }
 
+    override suspend fun bindMedicalInsurance(cardNo: String): Result<MedicalInsuranceDto> {
+        delay(ApiProvider.MOCK_DELAY_MS)
+        return Result.success(MedicalInsuranceDto(medicalInsuranceNo = cardNo, boundAt = System.currentTimeMillis()))
+    }
+
     override suspend fun logout(): Result<Unit> = Result.success(Unit)
 
     override suspend fun me(): Result<MeResponse> {

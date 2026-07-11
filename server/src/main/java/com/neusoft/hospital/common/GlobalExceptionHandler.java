@@ -17,7 +17,10 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -51,6 +54,18 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Result.fail(400, "参数错误: " + e.getMessage()));
     }
 
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<Result<Void>> handleMissingPart(MissingServletRequestPartException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Result.fail(400, "缺少请求部分: " + e.getRequestPartName()));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Result<Void>> handleUploadTooLarge(MaxUploadSizeExceededException e) {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(Result.fail(413, "上传文件过大"));
+    }
+
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<Result<Void>> handleMethod(HttpRequestMethodNotSupportedException e) {
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(Result.fail(405, "HTTP 方法不被支持"));
@@ -59,6 +74,17 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoHandlerFoundException.class)
     public ResponseEntity<Result<Void>> handle404(NoHandlerFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Result.fail(404, "路径不存在"));
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Result<Void>> handleNoResource(NoResourceFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Result.fail(404, "资源不存在"));
+    }
+
+    @ExceptionHandler(org.springframework.web.HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<Result<Void>> handleMediaType(org.springframework.web.HttpMediaTypeNotSupportedException e) {
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+                .body(Result.fail(415, "不支持的 Content-Type: " + e.getContentType()));
     }
 
     @ExceptionHandler(AuthenticationException.class)

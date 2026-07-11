@@ -22,6 +22,8 @@ interface AuthApiService {
 
     suspend fun bindEhsCard(userId: String, cardNo: String): Result<String>
 
+    suspend fun bindMedicalInsurance(cardNo: String): Result<MedicalInsuranceDto>
+
     suspend fun logout(): Result<Unit>
 
     suspend fun me(): Result<MeResponse>
@@ -38,7 +40,13 @@ data class MeResponse(
     val phone: String,
     val name: String,
     val isVerified: Boolean,
-    val hasEhsCard: Boolean
+    val hasEhsCard: Boolean,
+    val hasMedicalInsurance: Boolean = false
+)
+
+data class MedicalInsuranceDto(
+    val medicalInsuranceNo: String,
+    val boundAt: Long
 )
 
 // --- Retrofit DTOs (server Result<T> envelope -> data class) ---
@@ -47,6 +55,7 @@ data class SmsRespDto(val traceId: String, val ttlSeconds: Int)
 data class LoginReqDto(val phone: String, val code: String)
 data class IdCardReqDto(val name: String, val idCard: String)
 data class BindEhsReqDto(val ehsCardNo: String)
+data class BindMiReqDto(val medicalInsuranceNo: String)
 data class IdCardAckDto(val verified: Boolean)
 data class BindEhsAckDto(val ehsCardNo: String)
 data class RefreshReqDto(val refreshToken: String)
@@ -70,6 +79,9 @@ interface AuthApiServiceRetrofit {
 
     @POST("api/auth/bind-ehs")
     suspend fun bindEhs(@Body req: BindEhsReqDto): ApiEnvelope<BindEhsAckDto>
+
+    @POST("api/auth/bind-mi")
+    suspend fun bindMedicalInsurance(@Body req: BindMiReqDto): ApiEnvelope<MedicalInsuranceDto>
 
     @POST("api/auth/logout")
     suspend fun logout(): ApiEnvelope<Unit>

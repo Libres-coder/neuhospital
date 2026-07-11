@@ -28,6 +28,7 @@ class UserPreferences @Inject constructor(@ApplicationContext private val ctx: C
         val IS_LOGGED_IN = booleanPreferencesKey("is_logged_in")
         val IS_VERIFIED = booleanPreferencesKey("is_verified")
         val HAS_EHS = booleanPreferencesKey("has_ehs")
+        val HAS_MI = booleanPreferencesKey("has_mi")
         val CURRENT_PATIENT_ID = stringPreferencesKey("current_patient_id")
     }
 
@@ -37,6 +38,7 @@ class UserPreferences @Inject constructor(@ApplicationContext private val ctx: C
     val isLoggedInFlow: Flow<Boolean> = ds.data.map { it[Keys.IS_LOGGED_IN] ?: false }
     val isVerifiedFlow: Flow<Boolean> = ds.data.map { it[Keys.IS_VERIFIED] ?: false }
     val hasEhsFlow: Flow<Boolean> = ds.data.map { it[Keys.HAS_EHS] ?: false }
+    val hasMiFlow: Flow<Boolean> = ds.data.map { it[Keys.HAS_MI] ?: false }
     val currentPatientIdFlow: Flow<String> = ds.data.map { it[Keys.CURRENT_PATIENT_ID] ?: "" }
     val userNameFlow: Flow<String> = ds.data.map { it[Keys.USER_NAME] ?: "" }
     val phoneFlow: Flow<String> = ds.data.map { it[Keys.PHONE] ?: "" }
@@ -66,6 +68,10 @@ class UserPreferences @Inject constructor(@ApplicationContext private val ctx: C
 
     suspend fun setEhsBound() {
         ds.edit { it[Keys.HAS_EHS] = true }
+    }
+
+    suspend fun setMiBound() {
+        ds.edit { it[Keys.HAS_MI] = true }
     }
 
     suspend fun setCurrentPatient(patientId: String) {

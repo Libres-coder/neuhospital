@@ -87,6 +87,12 @@ class AuthRepository @Inject constructor(
         return resp
     }
 
+    suspend fun bindMedicalInsurance(cardNo: String): Result<MedicalInsuranceDto> {
+        val resp = api.bindMedicalInsurance(cardNo)
+        if (resp.isSuccess) prefs.setMiBound()
+        return resp
+    }
+
     /**
      * Reactive stream of family members. Backed by Room (offline-readable),
      * but we refresh from the server on first subscription and after every

@@ -41,5 +41,9 @@
 /server/req.json
 /server/resp.json
 
+# Server runtime artifacts
+/server/uploads/
+/server/triage_test.jpg
+
 # Local probe / smoke artifacts (kept in scripts/ which is committed)
 /server/probe.bin
