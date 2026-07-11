@@ -24,6 +24,7 @@
         <springdoc.version>2.6.0</springdoc.version>
         <caffeine.version>3.1.8</caffeine.version>
         <dashscope.version>2.22.20</dashscope.version>
+        <dotenv.version>3.0.0</dotenv.version>
     </properties>
 
     <dependencies>
@@ -106,6 +107,16 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
+        </dependency>
+
+        <!-- .env loader: at app startup, read `server/.env` and merge into
+             System env vars so Spring's `${DASHSCOPE_API_KEY}` placeholder
+             resolution works without exporting vars manually. The file is
+             .gitignore'd so secrets never leave the dev machine. -->
+        <dependency>
+            <groupId>io.github.cdimascio</groupId>
+            <artifactId>dotenv-java</artifactId>
+            <version>${dotenv.version}</version>
         </dependency>
 
         <!-- OpenAPI / Swagger UI -->

@@ -13,6 +13,8 @@ import com.alibaba.dashscope.exception.ApiException;
 import com.alibaba.dashscope.exception.InputRequiredException;
 import com.alibaba.dashscope.exception.NoApiKeyException;
 import com.alibaba.dashscope.exception.UploadFileException;
+import com.alibaba.dashscope.protocol.Protocol;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -67,11 +69,47 @@ public class BailianClient {
     private String visionModel;
 
     /**
+     * Optional custom base URL. Defaults to the SDK's built-in DashScope
+     * endpoint; set this for Alibaba MaaS dedicated endpoints like
+     * {@code https://<workspaceId>.cn-beijing.maas.aliyuncs.com/api/v1}.
+     *
+     * <p>Per-instance only (does NOT mutate the global
+     * {@code Constants.baseHttpApiUrl}) so other SDK users in the same JVM
+     * are unaffected.</p>
+     */
+    @Value("${app.ai.bailian.base-url:}")
+    private String baseUrl;
+
+    @PostConstruct
+    void logEffectiveConfig() {
+        log.info("Bailian config: model={} visionModel={} baseUrl={} keySet={}",
+                model, visionModel,
+                StringUtils.hasText(baseUrl) ? baseUrl : "<default>",
+                StringUtils.hasText(apiKey) ? "yes" : "no");
+    }
+
+    /**
      * Whether the client is configured and ready to make calls.
      * Returns false if api-key is blank or model is blank.
      */
     public boolean isEnabled() {
         return StringUtils.hasText(apiKey) && StringUtils.hasText(model);
+    }
+
+    /** Build a Generation client, plugging in the custom base URL when set. */
+    private Generation buildGeneration() {
+        if (StringUtils.hasText(baseUrl)) {
+            return new Generation(Protocol.HTTP.getValue(), baseUrl);
+        }
+        return new Generation();
+    }
+
+    /** Build a MultiModalConversation client, plugging in the custom base URL when set. */
+    private MultiModalConversation buildMultiModal() {
+        if (StringUtils.hasText(baseUrl)) {
+            return new MultiModalConversation(Protocol.HTTP.getValue(), baseUrl);
+        }
+        return new MultiModalConversation();
     }
 
     /**
@@ -110,7 +148,7 @@ public class BailianClient {
                 .resultFormat(GenerationParam.ResultFormat.MESSAGE)
                 .build();
 
-        Generation gen = new Generation();
+        Generation gen = buildGeneration();
         try {
             // DashScope SDK doesn't expose a per-call timeout knob in 2.x — we wrap on our side
             // via a future if needed in the future. For now, rely on the SDK's default.
@@ -180,7 +218,7 @@ public class BailianClient {
                 .build();
         try {
             long start = System.currentTimeMillis();
-            MultiModalConversationResult result = new MultiModalConversation().call(param);
+            MultiModalConversationResult result = buildMultiModal().call(param);
             long cost = System.currentTimeMillis() - start;
             log.info("Bailian vision OK model={} costMs={}", visionModel, cost);
             if (result == null || result.getOutput() == null

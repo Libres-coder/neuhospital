@@ -45,5 +45,10 @@
 /server/uploads/
 /server/triage_test.jpg
 
+# Server secrets — never commit. Copy `.env.example` → `.env` and fill in.
+server/.env
+server/.env.local
+server/application-local.properties
+
 # Local probe / smoke artifacts (kept in scripts/ which is committed)
 /server/probe.bin
