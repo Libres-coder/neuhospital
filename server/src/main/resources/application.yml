@@ -74,6 +74,9 @@ app:
     # dev: always accept this code. Production: leave blank and plug in a real SMS gateway.
     fixed-code: ${SMS_FIXED_CODE:123456}
     ttl-seconds: 300
+    # which SmsSender bean to activate. 'log' (default) just logs the payload;
+    # 'aliyun' uses dysmsapi with ALIYUN_SMS_ACCESS_KEY_ID / SECRET.
+    provider: ${SMS_PROVIDER:log}
   cors:
     # dev defaults to wildcard; production must list exact origins
     allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
@@ -85,6 +88,22 @@ app:
       per-user-max: 30
       window-seconds: 60
     max-content-length: 500
+    bailian:
+      # Alibaba Bailian (DashScope / 阿里百炼) integration.
+      # Provide DASHSCOPE_API_KEY or BAILIAN_API_KEY env var. When unset, chat
+      # falls back to a local keyword matcher (see BailianClient#isEnabled).
+      api-key: ${DASHSCOPE_API_KEY:${BAILIAN_API_KEY:}}
+      model: ${BAILIAN_MODEL:qwen-turbo}  # also qwen-plus, qwen-max
+      temperature: ${BAILIAN_TEMPERATURE:0.4}
+      max-tokens: ${BAILIAN_MAX_TOKENS:800}
+      timeout-ms: ${BAILIAN_TIMEOUT_MS:15000}
+  reminder:
+    # Send SMS reminder N minutes before appointment start.
+    enabled: ${REMINDER_ENABLED:true}
+    lead-minutes: ${REMINDER_LEAD_MINUTES:30}
+    template-code: ${REMINDER_TEMPLATE_CODE:APP_REMINDER}
+    scan-interval-ms: ${REMINDER_SCAN_MS:60000}
+    zone: ${REMINDER_ZONE:Asia/Shanghai}
   # Rate limiting (single-instance dev). For prod multi-instance, swap Caffeine for Redis Lua.
   ratelimit:
     max-keys: 50000
@@ -102,6 +121,14 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
     operations-sorter: method
+
+# Aliyun OpenAPI keys. Used when SMS_PROVIDER=aliyun.
+# Provide via env to keep secrets out of source control.
+aliyun:
+  sms:
+    access-key-id: ${ALIYUN_SMS_ACCESS_KEY_ID:}
+    access-key-secret: ${ALIYUN_SMS_ACCESS_KEY_SECRET:}
+    sign-name: ${ALIYUN_SMS_SIGN_NAME:东软医院}
 
 logging:
   level:
