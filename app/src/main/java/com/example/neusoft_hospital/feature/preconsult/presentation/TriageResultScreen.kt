@@ -22,6 +22,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import com.example.neusoft_hospital.feature.appointment.data.AppointmentRepository
+import com.example.neusoft_hospital.feature.appointment.data.toDomain
+import com.example.neusoft_hospital.feature.auth.domain.Appointment
 import com.example.neusoft_hospital.feature.auth.domain.DepartmentRecommendation
 import com.example.neusoft_hospital.feature.auth.domain.TriageResult
 import com.example.neusoft_hospital.feature.preconsult.data.PreConsultRepository
@@ -36,7 +38,11 @@ data class TriageUiState(
     val result: TriageResult? = null,
     val symptoms: String = "",
     val loading: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val booking: Boolean = false,
+    val bookedAppointment: Appointment? = null,
+    val bookedDoctorName: String? = null,
+    val bookedSlot: String? = null
 )
 
 /** Maps raw 0..1 confidence into a 0..1 strength bucket + label the UI can show. */
@@ -86,6 +92,34 @@ class TriageResultViewModel @Inject constructor(
 
     fun retry() {
         if (_ui.value.symptoms.isNotBlank()) triage(_ui.value.symptoms)
+    }
+
+    fun oneClickBook() {
+        val symptoms = _ui.value.symptoms
+        if (symptoms.isBlank()) return
+        viewModelScope.launch {
+            _ui.value = _ui.value.copy(booking = true, error = null)
+            apptRepo.recommendAndBook(symptoms)
+                .onSuccess { ap ->
+                    val domain = ap.toDomain()
+                    _ui.value = _ui.value.copy(
+                        booking = false,
+                        bookedAppointment = domain,
+                        bookedDoctorName = ap.doctorName,
+                        bookedSlot = "${ap.date} ${ap.timeSlot}"
+                    )
+                }
+                .onFailure { e ->
+                    _ui.value = _ui.value.copy(
+                        booking = false,
+                        error = "一键挂号失败：${e.message ?: "未知错误"}"
+                    )
+                }
+        }
+    }
+
+    fun dismissBookedBanner() {
+        _ui.value = _ui.value.copy(bookedAppointment = null)
     }
 }
 
@@ -178,25 +212,68 @@ fun TriageResultScreen(navController: NavController, vm: TriageResultViewModel =
             item {
                 Spacer(Modifier.height(8.dp))
                 Button(
+                    onClick = vm::oneClickBook,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = safeResult.recommendedDepartments.isNotEmpty() && !ui.booking
+                ) {
+                    if (ui.booking) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("正在匹配最佳医生并预约…")
+                    } else {
+                        Icon(Icons.Default.EventAvailable, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("一键挂号：${safeResult.recommendedDepartments.firstOrNull()?.department?.name ?: "—"}")
+                    }
+                }
+                if (ui.bookedAppointment != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "挂号成功：${ui.bookedDoctorName}",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(
+                                    "时间：${ui.bookedSlot}",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Text(
+                                    "可在「我的预约」中查看",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            IconButton(onClick = vm::dismissBookedBanner) {
+                                Icon(Icons.Default.Close, contentDescription = "关闭")
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
                     onClick = {
                         val topDept = safeResult.recommendedDepartments.firstOrNull()?.department
                         if (topDept != null) navController.navigate(Routes.DoctorList.create(topDept.id))
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = safeResult.recommendedDepartments.isNotEmpty()
-                ) {
-                    Icon(Icons.Default.EventAvailable, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("一键挂号：${safeResult.recommendedDepartments.firstOrNull()?.department?.name ?: "—"}")
-                }
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = { navController.popBackStack() },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.Edit, null)
+                    Icon(Icons.Default.ListAlt, null)
                     Spacer(Modifier.width(8.dp))
-                    Text("补充或修改症状")
+                    Text("或：手动选择科室和医生")
                 }
             }
         }

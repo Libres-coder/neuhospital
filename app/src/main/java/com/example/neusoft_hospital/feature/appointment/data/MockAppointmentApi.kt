@@ -188,6 +188,29 @@ class MockAppointmentApi @Inject constructor(
         return Result.success(scored.take(5))
     }
 
+    override suspend fun recommendAndBook(symptoms: String): Result<AppointmentEntity> {
+        delay(ApiProvider.MOCK_DELAY_MS)
+        val top = doctors.maxByOrNull { it.rating }
+            ?: return Result.failure(IllegalStateException("no doctors"))
+        val today = java.time.LocalDate.now().toString()
+        val ap = AppointmentEntity(
+            id = "ap_" + java.util.UUID.randomUUID().toString().take(12),
+            patientId = "self",
+            patientName = "本人",
+            doctorId = top.id,
+            doctorName = top.name,
+            departmentId = top.departmentId,
+            departmentName = top.departmentName,
+            date = today,
+            timeSlot = "08:00-08:15",
+            duration = 15,
+            status = "payed",
+            reminderSet = false,
+            createTime = System.currentTimeMillis()
+        )
+        return Result.success(ap)
+    }
+
     override suspend fun book(
         doctorId: String,
         date: String,

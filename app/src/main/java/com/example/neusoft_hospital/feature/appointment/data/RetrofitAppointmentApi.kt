@@ -50,6 +50,12 @@ class RetrofitAppointmentApi @Inject constructor(
         }
     }
 
+    override suspend fun recommendAndBook(symptoms: String): Result<AppointmentEntity> = wrap {
+        val resp = service.recommendAndBook(TriageBookReqDto(symptoms))
+        requireOk(resp.code, resp.message)
+        resp.data?.toEntity() ?: error("empty appointment from one-click book")
+    }
+
     override suspend fun book(
         doctorId: String,
         date: String,

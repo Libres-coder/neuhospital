@@ -35,6 +35,17 @@ class AppointmentRepository @Inject constructor(
     suspend fun getDoctor(doctorId: String) = api.getDoctor(doctorId)
     suspend fun recommend(symptoms: String, historyDept: String? = null) = api.recommend(symptoms, historyDept)
 
+    /**
+     * One-click book: ask the server to pick the best doctor and book the
+     * earliest available slot in a single round-trip. Used by the
+     * TriageResultScreen "一键挂号" button.
+     */
+    suspend fun recommendAndBook(symptoms: String): Result<AppointmentEntity> {
+        val res = api.recommendAndBook(symptoms)
+        res.onSuccess { dao.insert(it) }
+        return res
+    }
+
     // -------- my appointments: server-authoritative, mirrored to Room --------
 
     suspend fun refreshMyAppointments(): Result<List<AppointmentEntity>> {

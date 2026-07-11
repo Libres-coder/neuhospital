@@ -6,6 +6,7 @@ import com.neusoft.hospital.module.auth.User;
 import com.neusoft.hospital.module.auth.UserRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -46,11 +47,35 @@ public class AppointmentController {
     }
 
     @GetMapping("/doctors/recommend")
-    @Operation(summary = "Recommend doctors based on symptoms")
+    @Operation(summary = "???????????-???? + ?????? + ?? + ????")
     public Result<Object> recommend(
-            @RequestParam(required = false, defaultValue = "") String symptoms,
-            @RequestParam(required = false) String dept) {
-        return Result.ok(service.recommend(symptoms, dept));
+            @AuthenticationPrincipal String userId,
+            @RequestParam(required = false, defaultValue = "") String symptoms) {
+        return Result.ok(service.recommend(userId, symptoms));
+    }
+
+    @PostMapping("/doctors/recommend-and-book")
+    @Operation(summary = "??????????????????????????")
+    public Result<Object> recommendAndBook(
+            @AuthenticationPrincipal String userId,
+            @RequestBody TriageBookRequest req) {
+        if (userId == null) throw BizException.unauthorized("Please login first");
+        User u = userRepository.findById(userId)
+                .orElseThrow(() -> BizException.notFound("User not found"));
+        if (u.getName() == null || u.getName().isBlank()) {
+            throw BizException.badRequest("Please verify your real name before booking");
+        }
+        AppointmentDtos.AppointmentDto booked = service.bookFromTriage(
+                userId, u.getName(), req == null ? "" : req.getSymptoms());
+        if (booked == null) {
+            return Result.fail(404, "?????????????????");
+        }
+        return Result.ok(booked);
+    }
+
+    @Data
+    public static class TriageBookRequest {
+        private String symptoms;
     }
 
     // ---------- my appointments ----------

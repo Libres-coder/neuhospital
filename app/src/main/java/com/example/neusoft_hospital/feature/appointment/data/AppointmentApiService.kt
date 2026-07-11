@@ -21,6 +21,8 @@ interface AppointmentApiService {
     suspend fun getDoctor(doctorId: String): Result<Doctor>
     suspend fun recommend(symptoms: String, historyDept: String? = null): Result<List<DoctorRecommendation>>
 
+    suspend fun recommendAndBook(symptoms: String): Result<AppointmentEntity>
+
     suspend fun book(
         doctorId: String,
         date: String,
@@ -107,6 +109,8 @@ data class RecommendQuery(
     val dept: String? = null
 )
 
+data class TriageBookReqDto(val symptoms: String)
+
 data class DoctorRecDto(
     val doctor: DoctorDto,
     val score: Float
@@ -132,6 +136,9 @@ interface AppointmentApiServiceRetrofit {
         @Query("symptoms") symptoms: String,
         @Query("dept") dept: String?
     ): ApiEnvelope<List<DoctorRecDto>>
+
+    @POST("api/doctors/recommend-and-book")
+    suspend fun recommendAndBook(@Body req: TriageBookReqDto): ApiEnvelope<AppointmentDto>
 
     @POST("api/appointments")
     suspend fun book(@Body req: BookReqDto): ApiEnvelope<AppointmentDto>
